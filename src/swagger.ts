@@ -275,9 +275,35 @@ export const swaggerSpec: OpenAPIV3.Document = {
       post: {
         tags: ['Auth'],
         summary: 'Encerrar sessão',
+        description:
+          'Revoga o access token (insere na blocklist) e deleta os refresh tokens do usuário. Idempotente — revogar um token já revogado retorna 200 normalmente.',
         security: [{ bearerAuth: [] }],
         responses: {
-          '204': { description: 'Sessão encerrada com sucesso (sem corpo)' },
+          '200': {
+            description: 'Sessão encerrada com sucesso',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: true },
+                  },
+                },
+              },
+            },
+          },
+          '401': {
+            description: 'Token não fornecido',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } },
+            },
+          },
+          '500': {
+            description: 'Erro interno',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } },
+            },
+          },
         },
       },
     },
