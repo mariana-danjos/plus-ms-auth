@@ -22,4 +22,22 @@ export const signupSchema = z
     path: ['password_confirm'],
   });
 
+export const loginSchema = z.object({
+  email: z
+    .string({ required_error: 'Email é obrigatório' })
+    .email('Formato de email inválido'),
+  password: z.string({ required_error: 'Senha é obrigatória' }).min(1, 'Senha é obrigatória'),
+});
+
+export const VALID_ROLES = ['admin', 'vendedor', 'gestor'] as const;
+export type Role = (typeof VALID_ROLES)[number];
+
+export const assignRoleSchema = z.object({
+  role: z.enum(VALID_ROLES, {
+    errorMap: () => ({ message: `Role inválida. Valores aceitos: ${VALID_ROLES.join(', ')}` }),
+  }),
+});
+
 export type SignupInput = z.infer<typeof signupSchema>;
+export type LoginInput = z.infer<typeof loginSchema>;
+export type AssignRoleInput = z.infer<typeof assignRoleSchema>;

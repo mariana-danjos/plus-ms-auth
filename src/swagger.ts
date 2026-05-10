@@ -150,6 +150,8 @@ export const swaggerSpec: OpenAPIV3.Document = {
       post: {
         tags: ['Auth'],
         summary: 'Login de usuário',
+        description:
+          'Valida credenciais e emite access token (15 min) + refresh token (7 dias). Rate limit: 10 tentativas/min por email.',
         requestBody: {
           required: true,
           content: {
@@ -172,22 +174,43 @@ export const swaggerSpec: OpenAPIV3.Document = {
               'application/json': {
                 schema: {
                   type: 'object',
+                  required: ['token', 'refresh', 'user'],
                   properties: {
                     token: { type: 'string', description: 'Access token JWT (15 min)' },
                     refresh: { type: 'string', description: 'Refresh token JWT (7 dias)' },
+                    user: {
+                      type: 'object',
+                      properties: {
+                        id: { type: 'string', format: 'uuid' },
+                        email: { type: 'string', format: 'email' },
+                        roles: {
+                          type: 'array',
+                          items: { type: 'string', enum: ['admin', 'vendedor', 'gestor'] },
+                          example: ['vendedor'],
+                        },
+                      },
+                    },
                   },
                 },
               },
             },
           },
           '400': {
-            description: 'Campos obrigatórios ausentes',
+            description: 'Dados inválidos',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ValidationErrorResponse' },
+              },
+            },
+          },
+          '401': {
+            description: 'Credenciais inválidas (mensagem genérica — não revela se email existe)',
             content: {
               'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } },
             },
           },
-          '401': {
-            description: 'Credenciais inválidas',
+          '429': {
+            description: 'Rate limit atingido (máx. 10 tentativas/min por email)',
             content: {
               'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } },
             },
@@ -288,6 +311,164 @@ export const swaggerSpec: OpenAPIV3.Document = {
           },
           '401': {
             description: 'Token ausente, inválido ou expirado',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } },
+            },
+          },
+        },
+      },
+    },
+    '/auth/roles': {
+      get: {
+        tags: ['RBAC'],
+        summary: 'Listar roles disponíveis',
+        description: 'Retorna a lista de roles do sistema. Endpoint público.',
+        responses: {
+          '200': {
+            description: 'Lista de roles',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    roles: {
+                      type: 'array',
+                      items: { type: 'string', enum: ['admin', 'vendedor', 'gestor'] },
+                      example: ['admin', 'vendedor', 'gestor'],
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/auth/users/{userId}/roles': {
+      post: {
+        tags: ['RBAC'],
+        summary: 'Atribuir role a um usuário',
+        description: 'Substitui a role atual do usuário. Requer token de admin.',
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          {
+            name: 'userId',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+          },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['role'],
+                properties: {
+                  role: {
+                    type: 'string',
+                    enum: ['admin', 'vendedor', 'gestor'],
+                    example: 'gestor',
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          '200': {
+            description: 'Role atribuída com sucesso',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    message: { type: 'string', example: 'Role atribuída com sucesso' },
+                    user: {
+                      type: 'object',
+                      properties: {
+                        id: { type: 'string', format: 'uuid' },
+                        email: { type: 'string', format: 'email' },
+                        roles: { type: 'array', items: { type: 'string' } },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          '400': {
+            description: 'Role inválida ou userId malformado',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } },
+            },
+          },
+          '401': {
+            description: 'Token ausente ou inválido',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } },
+            },
+          },
+          '403': {
+            description: 'Acesso negado — requer role admin',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } },
+            },
+          },
+          '404': {
+            description: 'Usuário não encontrado',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } },
+            },
+          },
+        },
+      },
+    },
+    '/auth/users/{userId}/roles/{roleId}': {
+      delete: {
+        tags: ['RBAC'],
+        summary: 'Remover role de um usuário',
+        description:
+          'Remove a role especificada, revertendo o usuário para a role padrão `vendedor`. Não é possível remover a role `vendedor`. Requer token de admin.',
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          {
+            name: 'userId',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+          },
+          {
+            name: 'roleId',
+            in: 'path',
+            required: true,
+            description: 'Nome da role a remover (ex: admin, gestor)',
+            schema: { type: 'string', enum: ['admin', 'gestor'] },
+          },
+        ],
+        responses: {
+          '204': { description: 'Role removida com sucesso (sem corpo)' },
+          '400': {
+            description: 'Role inválida, userId malformado ou tentativa de remover role padrão',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } },
+            },
+          },
+          '401': {
+            description: 'Token ausente ou inválido',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } },
+            },
+          },
+          '403': {
+            description: 'Acesso negado — requer role admin',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } },
+            },
+          },
+          '404': {
+            description: 'Usuário não encontrado ou não possui essa role',
             content: {
               'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } },
             },
