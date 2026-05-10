@@ -5,6 +5,7 @@ import { requireRole } from '../middleware/requireRole';
 import {
   signupHandler,
   loginHandler,
+  logoutHandler,
   listRolesHandler,
   assignRoleHandler,
   removeRoleHandler,
@@ -35,6 +36,7 @@ const router = Router();
 
 router.post('/register', signupLimiter, signupHandler);
 router.post('/login', loginLimiter, loginHandler);
+router.post('/logout', logoutHandler);
 
 router.get('/roles', listRolesHandler);
 router.post('/users/:userId/roles', requireRole('admin'), assignRoleHandler);

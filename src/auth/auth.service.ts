@@ -143,6 +143,25 @@ export async function assignRoleService(
   return { id: user.id, email: user.email, roles: [user.role] };
 }
 
+// ── Logout ─────────────────────────────────────────────────────────────────
+
+export async function logoutService(token: string): Promise<void> {
+  const decoded = jwt.decode(token) as { sub?: string; exp?: number } | null;
+  const expiresAt = decoded?.exp
+    ? new Date(decoded.exp * 1000)
+    : new Date(Date.now() + 900_000);
+
+  await pool.query(
+    `INSERT INTO token_blocklist (token, expires_at) VALUES ($1, $2) ON CONFLICT (token) DO NOTHING`,
+    [token, expiresAt],
+  );
+
+  const userId = decoded?.sub;
+  if (userId) {
+    await pool.query(`DELETE FROM refresh_tokens WHERE user_id = $1`, [userId]);
+  }
+}
+
 export async function removeRoleService(userId: string, roleId: string): Promise<void> {
   if (!VALID_ROLES.includes(roleId as Role)) {
     throw new AppError(`Role inválida. Valores aceitos: ${VALID_ROLES.join(', ')}`, 400);

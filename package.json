@@ -8,7 +8,8 @@
     "migrate:up": "node -r dotenv/config -r ts-node/register node_modules/.bin/node-pg-migrate up --migrations-dir ./migrations --migration-file-language ts",
     "migrate:down": "node -r dotenv/config -r ts-node/register node_modules/.bin/node-pg-migrate down --migrations-dir ./migrations --migration-file-language ts",
     "migrate:status": "node -r dotenv/config -r ts-node/register node_modules/.bin/node-pg-migrate status --migrations-dir ./migrations --migration-file-language ts",
-    "migrate:create": "node-pg-migrate create --migrations-dir ./migrations --migration-file-language ts"
+    "migrate:create": "node-pg-migrate create --migrations-dir ./migrations --migration-file-language ts",
+    "cleanup:tokens": "ts-node src/scripts/cleanup-tokens.ts"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

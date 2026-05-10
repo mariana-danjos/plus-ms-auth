@@ -1,9 +1,9 @@
 import type { Request, Response } from 'express';
 import { signupSchema, loginSchema, assignRoleSchema, VALID_ROLES } from './auth.schema';
-import { signupService, loginService, assignRoleService, removeRoleService, AppError } from './auth.service';
+import { signupService, loginService, assignRoleService, removeRoleService, logoutService, AppError } from './auth.service';
 import { logger } from '../logger';
 
-// ── Signup ─────────────────────────────────────────────────────────────────
+// Signup 
 
 export async function signupHandler(req: Request, res: Response): Promise<void> {
   const ip = req.ip ?? 'unknown';
@@ -31,7 +31,7 @@ export async function signupHandler(req: Request, res: Response): Promise<void> 
   }
 }
 
-// ── Login ──────────────────────────────────────────────────────────────────
+// Login 
 
 export async function loginHandler(req: Request, res: Response): Promise<void> {
   const ip = req.ip ?? 'unknown';
@@ -59,7 +59,25 @@ export async function loginHandler(req: Request, res: Response): Promise<void> {
   }
 }
 
-// ── Roles ──────────────────────────────────────────────────────────────────
+// Logout
+
+export async function logoutHandler(req: Request, res: Response): Promise<void> {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith('Bearer ')) {
+    res.status(401).json({ error: 'Token não fornecido' });
+    return;
+  }
+  const token = auth.slice(7);
+  try {
+    await logoutService(token);
+    res.json({ success: true });
+  } catch (err) {
+    logger.error({ err, event: 'logout.error' }, 'Erro no logout');
+    res.status(500).json({ error: 'Erro interno no servidor' });
+  }
+}
+
+// Roles
 
 export function listRolesHandler(_req: Request, res: Response): void {
   res.json({ roles: VALID_ROLES });
