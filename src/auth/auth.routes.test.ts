@@ -52,6 +52,23 @@ function refreshToken(sub = user.id) {
   return jwt.sign({ sub }, REFRESH_SECRET, { expiresIn: 604800 });
 }
 
+function expiredAccessToken(overrides: Record<string, unknown> = {}) {
+  return jwt.sign(
+    {
+      sub: user.id,
+      email: user.email,
+      roles: [user.role],
+      ...overrides,
+    },
+    ACCESS_SECRET,
+    { expiresIn: -1 },
+  );
+}
+
+function expiredRefreshToken(sub = user.id) {
+  return jwt.sign({ sub }, REFRESH_SECRET, { expiresIn: -1 });
+}
+
 function mockDb(
   handler: (sql: string, params: unknown[]) => Promise<unknown> | unknown,
 ) {
@@ -76,12 +93,37 @@ afterAll(async () => {
 });
 
 describe('MS Auth endpoints e middlewares', () => {
+  it('serve Swagger UI em /api-docs', async () => {
+    const res = await request(app).get('/api-docs/');
+
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('Swagger UI');
+  });
+
   it('valida schema do signup com resposta padronizada', async () => {
-    const res = await request(app).post('/auth/register').send({ email: 'invalido' });
+    const res = await request(app).post('/auth/signup').send({ email: 'invalido' });
 
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('VALIDATION_ERROR');
     expect(res.body.error.details.password).toContain('Senha é obrigatória');
+  });
+
+  it('rejeita signup com senha fraca', async () => {
+    const res = await request(app).post('/auth/signup').send({
+      email: 'novo@loja.com',
+      password: '123',
+      password_confirm: '123',
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    expect(res.body.error.details.password).toEqual(
+      expect.arrayContaining([
+        'Senha deve ter no mínimo 8 caracteres',
+        'Senha deve conter pelo menos 1 letra',
+        'Senha deve conter pelo menos 1 caractere especial',
+      ]),
+    );
   });
 
   it('cadastra usuário e persiste refresh token com prepared statements', async () => {
@@ -95,7 +137,7 @@ describe('MS Auth endpoints e middlewares', () => {
       return { rows: [], rowCount: 0 };
     });
 
-    const res = await request(app).post('/auth/register').send({
+    const res = await request(app).post('/auth/signup').send({
       email: ' VENDEDOR@LOJA.COM ',
       password: 'Senha@123',
       password_confirm: 'Senha@123',
@@ -116,7 +158,7 @@ describe('MS Auth endpoints e middlewares', () => {
       return { rows: [], rowCount: 0 };
     });
 
-    const res = await request(app).post('/auth/register').send({
+    const res = await request(app).post('/auth/signup').send({
       email: 'vendedor@loja.com',
       password: 'Senha@123',
       password_confirm: 'Senha@123',
@@ -148,12 +190,29 @@ describe('MS Auth endpoints e middlewares', () => {
     expect(res.body.refresh).toEqual(expect.any(String));
   });
 
-  it('nega login inválido sem revelar se email existe', async () => {
+  it('nega login quando email não existe sem revelar se email está cadastrado', async () => {
     mockDb(() => ({ rows: [], rowCount: 0 }));
 
     const res = await request(app).post('/auth/login').send({
       email: 'ninguem@loja.com',
       password: 'Senha@123',
+    });
+
+    expect(res.status).toBe(401);
+    expect(res.body.error.code).toBe('INVALID_CREDENTIALS');
+  });
+
+  it('nega login com senha errada', async () => {
+    mockDb((sql) => {
+      if (sql.includes('SELECT id, email, role, password_hash FROM users')) {
+        return { rows: [user], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 0 };
+    });
+
+    const res = await request(app).post('/auth/login').send({
+      email: user.email,
+      password: 'SenhaErrada@123',
     });
 
     expect(res.status).toBe(401);
@@ -177,13 +236,31 @@ describe('MS Auth endpoints e middlewares', () => {
     expect(payload.roles).toEqual(['vendedor']);
   });
 
-  it('retorna 401 para refresh token revogado ou expirado', async () => {
+  it('retorna 401 para refresh token revogado', async () => {
     mockDb(() => ({ rows: [], rowCount: 0 }));
 
     const res = await request(app).post('/auth/refresh').send({ refresh: refreshToken() });
 
     expect(res.status).toBe(401);
     expect(res.body.error.code).toBe('REFRESH_TOKEN_REVOKED');
+  });
+
+  it('retorna 401 para refresh token expirado', async () => {
+    const res = await request(app)
+      .post('/auth/refresh')
+      .send({ refresh: expiredRefreshToken() });
+
+    expect(res.status).toBe(401);
+    expect(res.body.error.code).toBe('REFRESH_TOKEN_INVALID');
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+
+  it('retorna 401 para refresh token inválido', async () => {
+    const res = await request(app).post('/auth/refresh').send({ refresh: 'token-invalido' });
+
+    expect(res.status).toBe(401);
+    expect(res.body.error.code).toBe('REFRESH_TOKEN_INVALID');
+    expect(queryMock).not.toHaveBeenCalled();
   });
 
   it('retorna dados do usuário autenticado em /auth/me', async () => {
@@ -206,7 +283,24 @@ describe('MS Auth endpoints e middlewares', () => {
     });
   });
 
-  it('token revogado retorna HTTP 401', async () => {
+  it('retorna 401 em /auth/me sem token', async () => {
+    const res = await request(app).get('/auth/me');
+
+    expect(res.status).toBe(401);
+    expect(res.body.error.code).toBe('TOKEN_MISSING');
+  });
+
+  it('retorna 401 em /auth/me com token expirado', async () => {
+    const res = await request(app)
+      .get('/auth/me')
+      .set('Authorization', `Bearer ${expiredAccessToken()}`);
+
+    expect(res.status).toBe(401);
+    expect(res.body.error.code).toBe('TOKEN_INVALID');
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+
+  it('retorna 401 em /auth/me com token revogado', async () => {
     mockDb((sql) => {
       if (sql.includes('FROM token_blocklist')) {
         return { rows: [{ exists: 1 }], rowCount: 1 };
@@ -224,12 +318,7 @@ describe('MS Auth endpoints e middlewares', () => {
 
   it('logout inclui access token na blacklist usando hash e remove refresh tokens', async () => {
     const token = accessToken();
-    mockDb((sql) => {
-      if (sql.includes('FROM token_blocklist')) {
-        return { rows: [], rowCount: 0 };
-      }
-      return { rows: [], rowCount: 1 };
-    });
+    mockDb(() => ({ rows: [], rowCount: 1 }));
 
     const res = await request(app)
       .post('/auth/logout')
@@ -242,6 +331,26 @@ describe('MS Auth endpoints e middlewares', () => {
     ) as QueryMockCall | undefined;
     expect(insertCall?.[1]?.[0]).toBe(hashToken(token));
     expect(String(queryMock.mock.calls.at(-1)?.[0])).toContain('DELETE FROM refresh_tokens');
+  });
+
+  it('logout continua idempotente quando token já estava revogado', async () => {
+    const token = accessToken();
+    mockDb((sql) => {
+      if (sql.includes('INSERT INTO token_blocklist')) {
+        return { rows: [], rowCount: 0 };
+      }
+      if (sql.includes('DELETE FROM refresh_tokens')) {
+        return { rows: [], rowCount: 0 };
+      }
+      return { rows: [], rowCount: 0 };
+    });
+
+    const res = await request(app)
+      .post('/auth/logout')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
   });
 
   it('lista roles disponíveis', async () => {
@@ -264,14 +373,17 @@ describe('MS Auth endpoints e middlewares', () => {
 
     const res = await request(app)
       .post(`/auth/users/${user.id}/roles`)
-      .set('Authorization', `Bearer ${accessToken({ sub: admin.id, email: admin.email, roles: ['admin'] })}`)
+      .set(
+        'Authorization',
+        `Bearer ${accessToken({ sub: admin.id, email: admin.email, roles: ['admin'] })}`,
+      )
       .send({ role: 'gestor' });
 
     expect(res.status).toBe(200);
     expect(res.body.user.roles).toEqual(['gestor']);
   });
 
-  it('nega atribuição de role sem permissão admin', async () => {
+  it('nega atribuição de role para vendedor', async () => {
     mockDb((sql) => {
       if (sql.includes('FROM token_blocklist')) {
         return { rows: [], rowCount: 0 };
@@ -298,7 +410,10 @@ describe('MS Auth endpoints e middlewares', () => {
 
     const res = await request(app)
       .post(`/auth/users/${user.id}/roles`)
-      .set('Authorization', `Bearer ${accessToken({ sub: admin.id, email: admin.email, roles: ['admin'] })}`)
+      .set(
+        'Authorization',
+        `Bearer ${accessToken({ sub: admin.id, email: admin.email, roles: ['admin'] })}`,
+      )
       .send({ role: 'dono' });
 
     expect(res.status).toBe(400);
@@ -321,7 +436,10 @@ describe('MS Auth endpoints e middlewares', () => {
 
     const res = await request(app)
       .delete(`/auth/users/${user.id}/roles/gestor`)
-      .set('Authorization', `Bearer ${accessToken({ sub: admin.id, email: admin.email, roles: ['admin'] })}`);
+      .set(
+        'Authorization',
+        `Bearer ${accessToken({ sub: admin.id, email: admin.email, roles: ['admin'] })}`,
+      );
 
     expect(res.status).toBe(204);
   });
@@ -339,7 +457,10 @@ describe('MS Auth endpoints e middlewares', () => {
 
     const res = await request(app)
       .delete(`/auth/users/${user.id}/roles/vendedor`)
-      .set('Authorization', `Bearer ${accessToken({ sub: admin.id, email: admin.email, roles: ['admin'] })}`);
+      .set(
+        'Authorization',
+        `Bearer ${accessToken({ sub: admin.id, email: admin.email, roles: ['admin'] })}`,
+      );
 
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('DEFAULT_ROLE_REQUIRED');

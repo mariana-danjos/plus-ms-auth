@@ -7,8 +7,11 @@ export const swaggerSpec: OpenAPIV3.Document = {
     version: '1.0.0',
     description: 'Microsserviço de autenticação — sistema de gestão de estoque plus size',
   },
-  servers: [{ url: 'http://localhost:3004', description: 'Desenvolvimento local' }],
-  tags: [{ name: 'Auth', description: 'Operações de autenticação e sessão' }],
+  servers: [{ url: 'http://localhost:3001', description: 'Desenvolvimento local' }],
+  tags: [
+    { name: 'Auth', description: 'Operações de autenticação e sessão' },
+    { name: 'RBAC', description: 'Operações de controle de acesso por perfil' },
+  ],
   components: {
     securitySchemes: {
       bearerAuth: {
@@ -61,7 +64,7 @@ export const swaggerSpec: OpenAPIV3.Document = {
     },
   },
   paths: {
-    '/auth/register': {
+    '/auth/signup': {
       post: {
         tags: ['Auth'],
         summary: 'Cadastro de novo usuário',
@@ -519,3 +522,8 @@ export const swaggerSpec: OpenAPIV3.Document = {
     },
   },
 };
+
+const signupPath = swaggerSpec.paths['/auth/signup'];
+if (signupPath) {
+  swaggerSpec.paths['/auth/register'] = signupPath;
+}

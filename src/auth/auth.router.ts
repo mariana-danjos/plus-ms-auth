@@ -46,6 +46,7 @@ const loginLimiter = rateLimit({
 
 const router = Router();
 
+router.post('/signup', signupLimiter, validateBody(signupSchema), asyncHandler(signupHandler));
 router.post('/register', signupLimiter, validateBody(signupSchema), asyncHandler(signupHandler));
 router.post('/login', loginLimiter, validateBody(loginSchema), asyncHandler(loginHandler));
 router.post('/refresh', validateBody(refreshTokenSchema), asyncHandler(refreshTokenHandler));

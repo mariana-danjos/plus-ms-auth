@@ -9,11 +9,7 @@ import {
   refreshAccessTokenService,
 } from './auth.service';
 import { logger } from '../logger';
-import {
-  assertTokenNotRevoked,
-  getBearerToken,
-  verifyAccessToken,
-} from '../middleware/authenticateAccessToken';
+import { getBearerToken, verifyAccessToken } from '../middleware/authenticateAccessToken';
 
 // Signup 
 
@@ -42,7 +38,6 @@ export async function loginHandler(req: Request, res: Response): Promise<void> {
 export async function logoutHandler(req: Request, res: Response): Promise<void> {
   const token = getBearerToken(req);
   const payload = verifyAccessToken(token);
-  await assertTokenNotRevoked(token);
 
   await logoutService(token, payload);
   logger.info({ userId: payload.sub, event: 'logout.success' }, 'Logout realizado');
