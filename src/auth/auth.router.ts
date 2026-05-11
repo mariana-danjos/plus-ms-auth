@@ -25,11 +25,14 @@ import {
   removeRoleHandler,
 } from './auth.controller';
 
+const isTestEnv = process.env.NODE_ENV === 'test';
+
 const signupLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 5,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: () => isTestEnv,
   message: errorBody('RATE_LIMITED', 'Muitas tentativas de cadastro. Aguarde 1 minuto.'),
 });
 
@@ -38,6 +41,7 @@ const loginLimiter = rateLimit({
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: () => isTestEnv,
   // Rate limit por email para bloquear ataques de força bruta por conta específica
   keyGenerator: (req: Request) => {
     const rawEmail = (req.body as { email?: unknown }).email;
