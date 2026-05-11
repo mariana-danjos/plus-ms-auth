@@ -3,6 +3,7 @@ import * as jwt from 'jsonwebtoken';
 import type { NextFunction, Request, Response } from 'express';
 import { pool } from '../db';
 import { AppError } from '../errors';
+import { authorizationHeaderValueSchema } from '../auth/auth.schema';
 
 const ACCESS_SECRET =
   process.env.JWT_ACCESS_SECRET ?? process.env.JWT_SECRET ?? 'dev-access-secret';
@@ -19,12 +20,16 @@ export function hashToken(token: string): string {
 }
 
 export function getBearerToken(req: Request): string {
-  const auth = req.headers.authorization;
-  if (!auth?.startsWith('Bearer ')) {
+  if (!req.headers.authorization) {
     throw new AppError('Token não fornecido', 401, 'TOKEN_MISSING');
   }
 
-  return auth.slice(7);
+  const parsed = authorizationHeaderValueSchema.safeParse(req.headers.authorization);
+  if (!parsed.success) {
+    throw new AppError('Authorization header deve usar Bearer token', 401, 'TOKEN_INVALID');
+  }
+
+  return parsed.data.replace(/^Bearer\s+/, '');
 }
 
 export function verifyAccessToken(token: string): AccessTokenPayload {

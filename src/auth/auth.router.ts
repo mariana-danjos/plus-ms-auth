@@ -3,14 +3,16 @@ import rateLimit from 'express-rate-limit';
 import type { Request } from 'express';
 import { requireRole } from '../middleware/requireRole';
 import { asyncHandler } from '../middleware/asyncHandler';
-import { validateBody } from '../middleware/validateBody';
+import { validateBody, validateRequest, validateRequestSchema } from '../middleware/validateBody';
 import { authenticateAccessToken } from '../middleware/authenticateAccessToken';
 import { errorBody } from '../errors';
 import {
   signupSchema,
   loginSchema,
   assignRoleSchema,
-  refreshTokenSchema,
+  refreshTokenRequestSchema,
+  userIdParamsSchema,
+  userRoleParamsSchema,
 } from './auth.schema';
 import {
   signupHandler,
@@ -38,18 +40,26 @@ const loginLimiter = rateLimit({
   legacyHeaders: false,
   // Rate limit por email para bloquear ataques de força bruta por conta específica
   keyGenerator: (req: Request) => {
-    const email = (req.body as { email?: string }).email ?? req.ip ?? 'unknown';
+    const rawEmail = (req.body as { email?: unknown }).email;
+    const email = typeof rawEmail === 'string' ? rawEmail : req.ip ?? 'unknown';
     return `login:${email.toLowerCase()}`;
   },
   message: errorBody('RATE_LIMITED', 'Muitas tentativas de login. Aguarde 1 minuto.'),
 });
 
 const router = Router();
+const validateRefreshTokenRequest = validateRequestSchema(refreshTokenRequestSchema, (req, data) => {
+  const currentBody =
+    typeof req.body === 'object' && req.body !== null && !Array.isArray(req.body)
+      ? req.body
+      : {};
+  req.body = { ...currentBody, refresh: data.refresh };
+});
 
 router.post('/signup', signupLimiter, validateBody(signupSchema), asyncHandler(signupHandler));
 router.post('/register', signupLimiter, validateBody(signupSchema), asyncHandler(signupHandler));
 router.post('/login', loginLimiter, validateBody(loginSchema), asyncHandler(loginHandler));
-router.post('/refresh', validateBody(refreshTokenSchema), asyncHandler(refreshTokenHandler));
+router.post('/refresh', validateRefreshTokenRequest, asyncHandler(refreshTokenHandler));
 router.post('/logout', asyncHandler(logoutHandler));
 router.get('/me', asyncHandler(authenticateAccessToken), meHandler);
 
@@ -57,12 +67,13 @@ router.get('/roles', listRolesHandler);
 router.post(
   '/users/:userId/roles',
   asyncHandler(requireRole('admin')),
-  validateBody(assignRoleSchema),
+  validateRequest({ params: userIdParamsSchema, body: assignRoleSchema }),
   asyncHandler(assignRoleHandler),
 );
 router.delete(
   '/users/:userId/roles/:roleId',
   asyncHandler(requireRole('admin')),
+  validateRequest({ params: userRoleParamsSchema }),
   asyncHandler(removeRoleHandler),
 );
 

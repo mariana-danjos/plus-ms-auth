@@ -1,11 +1,24 @@
+import swaggerJSDoc from 'swagger-jsdoc';
+import type { Options } from 'swagger-jsdoc';
 import type { OpenAPIV3 } from 'openapi-types';
 
-export const swaggerSpec: OpenAPIV3.Document = {
+const errorExample = (code: string, message: string, details?: unknown) => ({
+  error: {
+    code,
+    message,
+    ...(details === undefined ? {} : { details }),
+  },
+});
+
+const authTokenExample =
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.exemplo.assinatura';
+
+const swaggerDefinition: OpenAPIV3.Document = {
   openapi: '3.0.3',
   info: {
     title: 'Plus MS Auth',
     version: '1.0.0',
-    description: 'Microsserviço de autenticação — sistema de gestão de estoque plus size',
+    description: 'Microsserviço de autenticação do sistema de gestão de estoque plus size.',
   },
   servers: [{ url: 'http://localhost:3001', description: 'Desenvolvimento local' }],
   tags: [
@@ -20,6 +33,37 @@ export const swaggerSpec: OpenAPIV3.Document = {
         bearerFormat: 'JWT',
       },
     },
+    parameters: {
+      AuthorizationHeader: {
+        name: 'Authorization',
+        in: 'header',
+        required: true,
+        description: 'Access token no formato Bearer.',
+        schema: { type: 'string', example: `Bearer ${authTokenExample}` },
+      },
+      RefreshTokenHeader: {
+        name: 'X-Refresh-Token',
+        in: 'header',
+        required: false,
+        description:
+          'Refresh token JWT. Também é aceito no body como `refresh` ou `refreshToken`.',
+        schema: { type: 'string', example: authTokenExample },
+      },
+      UserIdPath: {
+        name: 'userId',
+        in: 'path',
+        required: true,
+        schema: { type: 'string', format: 'uuid' },
+        example: '550e8400-e29b-41d4-a716-446655440000',
+      },
+      RoleIdPath: {
+        name: 'roleId',
+        in: 'path',
+        required: true,
+        schema: { type: 'string', enum: ['admin', 'vendedor', 'gestor'] },
+        example: 'gestor',
+      },
+    },
     schemas: {
       ErrorResponse: {
         type: 'object',
@@ -29,12 +73,16 @@ export const swaggerSpec: OpenAPIV3.Document = {
             type: 'object',
             required: ['code', 'message'],
             properties: {
-              code: { type: 'string', example: 'TOKEN_REVOKED' },
-              message: { type: 'string', example: 'Token revogado' },
-              details: { nullable: true },
+              code: { type: 'string', example: 'TOKEN_INVALID' },
+              message: { type: 'string', example: 'Token inválido ou expirado' },
+              details: {
+                description: 'Detalhes adicionais quando aplicável.',
+                nullable: true,
+              },
             },
           },
         },
+        example: errorExample('TOKEN_INVALID', 'Token inválido ou expirado'),
       },
       ValidationErrorResponse: {
         type: 'object',
@@ -61,6 +109,134 @@ export const swaggerSpec: OpenAPIV3.Document = {
           },
         },
       },
+      SignupRequest: {
+        type: 'object',
+        required: ['email', 'password', 'password_confirm'],
+        properties: {
+          email: { type: 'string', format: 'email', example: 'vendedor@loja.com' },
+          password: {
+            type: 'string',
+            minLength: 8,
+            description:
+              'Mínimo 8 caracteres, com pelo menos 1 letra, 1 número e 1 caractere especial.',
+            example: 'Senha@123',
+          },
+          password_confirm: {
+            type: 'string',
+            description: 'Deve ser idêntico ao campo `password`.',
+            example: 'Senha@123',
+          },
+        },
+      },
+      SignupResponse: {
+        type: 'object',
+        required: ['token', 'refresh', 'userId'],
+        properties: {
+          token: { type: 'string', description: 'Access token JWT, expira em 15 minutos' },
+          refresh: { type: 'string', description: 'Refresh token JWT, expira em 7 dias' },
+          userId: {
+            type: 'string',
+            format: 'uuid',
+            example: '550e8400-e29b-41d4-a716-446655440000',
+          },
+        },
+        example: {
+          token: authTokenExample,
+          refresh: authTokenExample,
+          userId: '550e8400-e29b-41d4-a716-446655440000',
+        },
+      },
+      LoginRequest: {
+        type: 'object',
+        required: ['email', 'password'],
+        properties: {
+          email: { type: 'string', format: 'email', example: 'vendedor@loja.com' },
+          password: { type: 'string', example: 'Senha@123' },
+        },
+      },
+      AuthUser: {
+        type: 'object',
+        required: ['id', 'email', 'roles'],
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          email: { type: 'string', format: 'email' },
+          roles: {
+            type: 'array',
+            items: { type: 'string', enum: ['admin', 'vendedor', 'gestor'] },
+            example: ['vendedor'],
+          },
+        },
+      },
+      LoginResponse: {
+        type: 'object',
+        required: ['token', 'refresh', 'user'],
+        properties: {
+          token: { type: 'string', description: 'Access token JWT, expira em 15 minutos' },
+          refresh: { type: 'string', description: 'Refresh token JWT, expira em 7 dias' },
+          user: { $ref: '#/components/schemas/AuthUser' },
+        },
+        example: {
+          token: authTokenExample,
+          refresh: authTokenExample,
+          user: {
+            id: '550e8400-e29b-41d4-a716-446655440000',
+            email: 'vendedor@loja.com',
+            roles: ['vendedor'],
+          },
+        },
+      },
+      RefreshRequest: {
+        type: 'object',
+        properties: {
+          refresh: { type: 'string', description: 'Refresh token JWT válido' },
+          refreshToken: {
+            type: 'string',
+            description: 'Alias aceito para compatibilidade com clientes existentes',
+          },
+        },
+        example: { refresh: authTokenExample },
+      },
+      RefreshResponse: {
+        type: 'object',
+        required: ['token'],
+        properties: {
+          token: { type: 'string', description: 'Novo access token JWT, expira em 15 minutos' },
+        },
+        example: { token: authTokenExample },
+      },
+      LogoutResponse: {
+        type: 'object',
+        required: ['success'],
+        properties: {
+          success: { type: 'boolean', example: true },
+        },
+      },
+      RolesResponse: {
+        type: 'object',
+        required: ['roles'],
+        properties: {
+          roles: {
+            type: 'array',
+            items: { type: 'string', enum: ['admin', 'vendedor', 'gestor'] },
+            example: ['admin', 'vendedor', 'gestor'],
+          },
+        },
+      },
+      AssignRoleRequest: {
+        type: 'object',
+        required: ['role'],
+        properties: {
+          role: { type: 'string', enum: ['admin', 'vendedor', 'gestor'], example: 'gestor' },
+        },
+      },
+      AssignRoleResponse: {
+        type: 'object',
+        required: ['message', 'user'],
+        properties: {
+          message: { type: 'string', example: 'Role atribuída com sucesso' },
+          user: { $ref: '#/components/schemas/AuthUser' },
+        },
+      },
     },
   },
   paths: {
@@ -69,31 +245,19 @@ export const swaggerSpec: OpenAPIV3.Document = {
         tags: ['Auth'],
         summary: 'Cadastro de novo usuário',
         description:
-          'Registra um novo usuário com role padrão `vendedor`, emite access token (15 min) e refresh token (7 dias).',
+          'Registra usuário com role padrão `vendedor` e emite access token e refresh token.',
         requestBody: {
           required: true,
           content: {
             'application/json': {
-              schema: {
-                type: 'object',
-                required: ['email', 'password', 'password_confirm'],
-                properties: {
-                  email: {
-                    type: 'string',
-                    format: 'email',
-                    example: 'vendedor@loja.com',
-                  },
-                  password: {
-                    type: 'string',
-                    minLength: 8,
-                    description:
-                      'Mínimo 8 chars. Deve conter ao menos 1 letra, 1 número e 1 caractere especial.',
-                    example: 'Senha@123',
-                  },
-                  password_confirm: {
-                    type: 'string',
-                    description: 'Deve ser idêntico ao campo `password`.',
-                    example: 'Senha@123',
+              schema: { $ref: '#/components/schemas/SignupRequest' },
+              examples: {
+                valid: {
+                  summary: 'Cadastro válido',
+                  value: {
+                    email: 'vendedor@loja.com',
+                    password: 'Senha@123',
+                    password_confirm: 'Senha@123',
                   },
                 },
               },
@@ -105,25 +269,7 @@ export const swaggerSpec: OpenAPIV3.Document = {
             description: 'Usuário cadastrado com sucesso',
             content: {
               'application/json': {
-                schema: {
-                  type: 'object',
-                  required: ['token', 'refresh', 'userId'],
-                  properties: {
-                    token: {
-                      type: 'string',
-                      description: 'Access token JWT (expira em 15 min)',
-                    },
-                    refresh: {
-                      type: 'string',
-                      description: 'Refresh token JWT (expira em 7 dias)',
-                    },
-                    userId: {
-                      type: 'string',
-                      format: 'uuid',
-                      example: '550e8400-e29b-41d4-a716-446655440000',
-                    },
-                  },
-                },
+                schema: { $ref: '#/components/schemas/SignupResponse' },
               },
             },
           },
@@ -132,6 +278,9 @@ export const swaggerSpec: OpenAPIV3.Document = {
             content: {
               'application/json': {
                 schema: { $ref: '#/components/schemas/ValidationErrorResponse' },
+                example: errorExample('VALIDATION_ERROR', 'Dados inválidos', {
+                  password: ['Senha deve conter pelo menos 1 caractere especial'],
+                }),
               },
             },
           },
@@ -140,24 +289,28 @@ export const swaggerSpec: OpenAPIV3.Document = {
             content: {
               'application/json': {
                 schema: { $ref: '#/components/schemas/ErrorResponse' },
-                example: { error: 'Email já cadastrado' },
+                example: errorExample('EMAIL_ALREADY_EXISTS', 'Email já cadastrado'),
               },
             },
           },
           '429': {
-            description: 'Rate limit atingido (máx. 5 tentativas/min por IP)',
+            description: 'Rate limit atingido',
             content: {
               'application/json': {
                 schema: { $ref: '#/components/schemas/ErrorResponse' },
-                example: { error: 'Muitas tentativas de cadastro. Aguarde 1 minuto.' },
+                example: errorExample(
+                  'RATE_LIMITED',
+                  'Muitas tentativas de cadastro. Aguarde 1 minuto.',
+                ),
               },
             },
           },
           '500': {
-            description: 'Erro interno',
+            description: 'Erro interno sem exposição de stack trace',
             content: {
               'application/json': {
                 schema: { $ref: '#/components/schemas/ErrorResponse' },
+                example: errorExample('INTERNAL_SERVER_ERROR', 'Erro interno no servidor'),
               },
             },
           },
@@ -169,17 +322,16 @@ export const swaggerSpec: OpenAPIV3.Document = {
         tags: ['Auth'],
         summary: 'Login de usuário',
         description:
-          'Valida credenciais e emite access token (15 min) + refresh token (7 dias). Rate limit: 10 tentativas/min por email.',
+          'Valida credenciais e emite access token e refresh token. A mensagem de erro de credenciais é genérica.',
         requestBody: {
           required: true,
           content: {
             'application/json': {
-              schema: {
-                type: 'object',
-                required: ['email', 'password'],
-                properties: {
-                  email: { type: 'string', format: 'email', example: 'vendedor@loja.com' },
-                  password: { type: 'string', example: 'Senha@123' },
+              schema: { $ref: '#/components/schemas/LoginRequest' },
+              examples: {
+                valid: {
+                  summary: 'Login válido',
+                  value: { email: 'vendedor@loja.com', password: 'Senha@123' },
                 },
               },
             },
@@ -190,26 +342,7 @@ export const swaggerSpec: OpenAPIV3.Document = {
             description: 'Login realizado com sucesso',
             content: {
               'application/json': {
-                schema: {
-                  type: 'object',
-                  required: ['token', 'refresh', 'user'],
-                  properties: {
-                    token: { type: 'string', description: 'Access token JWT (15 min)' },
-                    refresh: { type: 'string', description: 'Refresh token JWT (7 dias)' },
-                    user: {
-                      type: 'object',
-                      properties: {
-                        id: { type: 'string', format: 'uuid' },
-                        email: { type: 'string', format: 'email' },
-                        roles: {
-                          type: 'array',
-                          items: { type: 'string', enum: ['admin', 'vendedor', 'gestor'] },
-                          example: ['vendedor'],
-                        },
-                      },
-                    },
-                  },
-                },
+                schema: { $ref: '#/components/schemas/LoginResponse' },
               },
             },
           },
@@ -218,25 +351,40 @@ export const swaggerSpec: OpenAPIV3.Document = {
             content: {
               'application/json': {
                 schema: { $ref: '#/components/schemas/ValidationErrorResponse' },
+                example: errorExample('VALIDATION_ERROR', 'Dados inválidos', {
+                  email: ['Formato de email inválido'],
+                }),
               },
             },
           },
           '401': {
-            description: 'Credenciais inválidas (mensagem genérica — não revela se email existe)',
+            description: 'Credenciais inválidas',
             content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } },
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+                example: errorExample('INVALID_CREDENTIALS', 'Credenciais inválidas'),
+              },
             },
           },
           '429': {
-            description: 'Rate limit atingido (máx. 10 tentativas/min por email)',
+            description: 'Rate limit atingido',
             content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } },
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+                example: errorExample(
+                  'RATE_LIMITED',
+                  'Muitas tentativas de login. Aguarde 1 minuto.',
+                ),
+              },
             },
           },
           '500': {
-            description: 'Erro interno',
+            description: 'Erro interno sem exposição de stack trace',
             content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } },
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+                example: errorExample('INTERNAL_SERVER_ERROR', 'Erro interno no servidor'),
+              },
             },
           },
         },
@@ -246,15 +394,18 @@ export const swaggerSpec: OpenAPIV3.Document = {
       post: {
         tags: ['Auth'],
         summary: 'Renovar access token',
+        description:
+          'Aceita o refresh token no header `X-Refresh-Token` ou no body como `refresh`/`refreshToken`.',
+        parameters: [{ $ref: '#/components/parameters/RefreshTokenHeader' }],
         requestBody: {
-          required: true,
+          required: false,
           content: {
             'application/json': {
-              schema: {
-                type: 'object',
-                required: ['refresh'],
-                properties: {
-                  refresh: { type: 'string', description: 'Refresh token JWT válido' },
+              schema: { $ref: '#/components/schemas/RefreshRequest' },
+              examples: {
+                body: {
+                  summary: 'Refresh token no body',
+                  value: { refresh: authTokenExample },
                 },
               },
             },
@@ -265,25 +416,52 @@ export const swaggerSpec: OpenAPIV3.Document = {
             description: 'Novo access token emitido',
             content: {
               'application/json': {
-                schema: {
-                  type: 'object',
-                  properties: {
-                    token: { type: 'string', description: 'Novo access token JWT (15 min)' },
+                schema: { $ref: '#/components/schemas/RefreshResponse' },
+              },
+            },
+          },
+          '400': {
+            description: 'Refresh token não informado ou inválido',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ValidationErrorResponse' },
+                example: errorExample('VALIDATION_ERROR', 'Dados inválidos', {
+                  refresh: ['Refresh token obrigatório'],
+                }),
+              },
+            },
+          },
+          '401': {
+            description: 'Refresh token inválido, expirado ou revogado',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+                examples: {
+                  invalid: {
+                    summary: 'Token inválido',
+                    value: errorExample(
+                      'REFRESH_TOKEN_INVALID',
+                      'Refresh token inválido ou expirado',
+                    ),
+                  },
+                  revoked: {
+                    summary: 'Token revogado',
+                    value: errorExample(
+                      'REFRESH_TOKEN_REVOKED',
+                      'Refresh token revogado ou expirado',
+                    ),
                   },
                 },
               },
             },
           },
-          '400': {
-            description: 'Refresh token não informado',
+          '500': {
+            description: 'Erro interno sem exposição de stack trace',
             content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } },
-            },
-          },
-          '401': {
-            description: 'Refresh token inválido ou expirado',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } },
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+                example: errorExample('INTERNAL_SERVER_ERROR', 'Erro interno no servidor'),
+              },
             },
           },
         },
@@ -294,32 +472,44 @@ export const swaggerSpec: OpenAPIV3.Document = {
         tags: ['Auth'],
         summary: 'Encerrar sessão',
         description:
-          'Revoga o access token (insere na blocklist) e deleta os refresh tokens do usuário. Idempotente — revogar um token já revogado retorna 200 normalmente.',
+          'Revoga o access token e remove os refresh tokens do usuário autenticado.',
         security: [{ bearerAuth: [] }],
+        parameters: [{ $ref: '#/components/parameters/AuthorizationHeader' }],
         responses: {
           '200': {
             description: 'Sessão encerrada com sucesso',
             content: {
               'application/json': {
-                schema: {
-                  type: 'object',
-                  properties: {
-                    success: { type: 'boolean', example: true },
+                schema: { $ref: '#/components/schemas/LogoutResponse' },
+                example: { success: true },
+              },
+            },
+          },
+          '401': {
+            description: 'Token ausente, malformado, inválido ou expirado',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+                examples: {
+                  missing: {
+                    summary: 'Header ausente',
+                    value: errorExample('TOKEN_MISSING', 'Token não fornecido'),
+                  },
+                  invalid: {
+                    summary: 'Token inválido',
+                    value: errorExample('TOKEN_INVALID', 'Token inválido ou expirado'),
                   },
                 },
               },
             },
           },
-          '401': {
-            description: 'Token não fornecido',
-            content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } },
-            },
-          },
           '500': {
-            description: 'Erro interno',
+            description: 'Erro interno sem exposição de stack trace',
             content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } },
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+                example: errorExample('INTERNAL_SERVER_ERROR', 'Erro interno no servidor'),
+              },
             },
           },
         },
@@ -330,33 +520,46 @@ export const swaggerSpec: OpenAPIV3.Document = {
         tags: ['Auth'],
         summary: 'Dados do usuário autenticado',
         security: [{ bearerAuth: [] }],
+        parameters: [{ $ref: '#/components/parameters/AuthorizationHeader' }],
         responses: {
           '200': {
             description: 'Dados do usuário autenticado',
             content: {
               'application/json': {
-                schema: {
-                  type: 'object',
-                  properties: {
-                    id: { type: 'string', format: 'uuid' },
-                    email: { type: 'string', format: 'email' },
-                    roles: {
-                      type: 'array',
-                      items: {
-                        type: 'string',
-                        enum: ['admin', 'vendedor', 'gestor'],
-                      },
-                      example: ['vendedor'],
-                    },
-                  },
+                schema: { $ref: '#/components/schemas/AuthUser' },
+                example: {
+                  id: '550e8400-e29b-41d4-a716-446655440000',
+                  email: 'vendedor@loja.com',
+                  roles: ['vendedor'],
                 },
               },
             },
           },
           '401': {
-            description: 'Token ausente, inválido ou expirado',
+            description: 'Token ausente, inválido, expirado ou revogado',
             content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } },
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+                examples: {
+                  missing: {
+                    summary: 'Header ausente',
+                    value: errorExample('TOKEN_MISSING', 'Token não fornecido'),
+                  },
+                  revoked: {
+                    summary: 'Token revogado',
+                    value: errorExample('TOKEN_REVOKED', 'Token revogado'),
+                  },
+                },
+              },
+            },
+          },
+          '500': {
+            description: 'Erro interno sem exposição de stack trace',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+                example: errorExample('INTERNAL_SERVER_ERROR', 'Erro interno no servidor'),
+              },
             },
           },
         },
@@ -366,22 +569,12 @@ export const swaggerSpec: OpenAPIV3.Document = {
       get: {
         tags: ['RBAC'],
         summary: 'Listar roles disponíveis',
-        description: 'Retorna a lista de roles do sistema. Endpoint público.',
         responses: {
           '200': {
             description: 'Lista de roles',
             content: {
               'application/json': {
-                schema: {
-                  type: 'object',
-                  properties: {
-                    roles: {
-                      type: 'array',
-                      items: { type: 'string', enum: ['admin', 'vendedor', 'gestor'] },
-                      example: ['admin', 'vendedor', 'gestor'],
-                    },
-                  },
-                },
+                schema: { $ref: '#/components/schemas/RolesResponse' },
               },
             },
           },
@@ -395,27 +588,16 @@ export const swaggerSpec: OpenAPIV3.Document = {
         description: 'Substitui a role atual do usuário. Requer token de admin.',
         security: [{ bearerAuth: [] }],
         parameters: [
-          {
-            name: 'userId',
-            in: 'path',
-            required: true,
-            schema: { type: 'string', format: 'uuid' },
-          },
+          { $ref: '#/components/parameters/AuthorizationHeader' },
+          { $ref: '#/components/parameters/UserIdPath' },
         ],
         requestBody: {
           required: true,
           content: {
             'application/json': {
-              schema: {
-                type: 'object',
-                required: ['role'],
-                properties: {
-                  role: {
-                    type: 'string',
-                    enum: ['admin', 'vendedor', 'gestor'],
-                    example: 'gestor',
-                  },
-                },
+              schema: { $ref: '#/components/schemas/AssignRoleRequest' },
+              examples: {
+                valid: { summary: 'Atribuir gestor', value: { role: 'gestor' } },
               },
             },
           },
@@ -425,27 +607,19 @@ export const swaggerSpec: OpenAPIV3.Document = {
             description: 'Role atribuída com sucesso',
             content: {
               'application/json': {
-                schema: {
-                  type: 'object',
-                  properties: {
-                    message: { type: 'string', example: 'Role atribuída com sucesso' },
-                    user: {
-                      type: 'object',
-                      properties: {
-                        id: { type: 'string', format: 'uuid' },
-                        email: { type: 'string', format: 'email' },
-                        roles: { type: 'array', items: { type: 'string' } },
-                      },
-                    },
-                  },
-                },
+                schema: { $ref: '#/components/schemas/AssignRoleResponse' },
               },
             },
           },
           '400': {
-            description: 'Role inválida ou userId malformado',
+            description: 'Body ou params inválidos',
             content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } },
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ValidationErrorResponse' },
+                example: errorExample('VALIDATION_ERROR', 'Dados inválidos', {
+                  role: ['Role inválida. Valores aceitos: admin, vendedor, gestor'],
+                }),
+              },
             },
           },
           '401': {
@@ -455,15 +629,30 @@ export const swaggerSpec: OpenAPIV3.Document = {
             },
           },
           '403': {
-            description: 'Acesso negado — requer role admin',
+            description: 'Token válido, mas sem role admin',
             content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } },
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+                example: errorExample('FORBIDDEN', 'Acesso negado: requer role admin'),
+              },
             },
           },
           '404': {
             description: 'Usuário não encontrado',
             content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } },
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+                example: errorExample('USER_NOT_FOUND', 'Usuário não encontrado'),
+              },
+            },
+          },
+          '500': {
+            description: 'Erro interno sem exposição de stack trace',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+                example: errorExample('INTERNAL_SERVER_ERROR', 'Erro interno no servidor'),
+              },
             },
           },
         },
@@ -474,29 +663,36 @@ export const swaggerSpec: OpenAPIV3.Document = {
         tags: ['RBAC'],
         summary: 'Remover role de um usuário',
         description:
-          'Remove a role especificada, revertendo o usuário para a role padrão `vendedor`. Não é possível remover a role `vendedor`. Requer token de admin.',
+          'Remove a role informada e retorna o usuário para a role padrão `vendedor`. Requer token de admin.',
         security: [{ bearerAuth: [] }],
         parameters: [
-          {
-            name: 'userId',
-            in: 'path',
-            required: true,
-            schema: { type: 'string', format: 'uuid' },
-          },
-          {
-            name: 'roleId',
-            in: 'path',
-            required: true,
-            description: 'Nome da role a remover (ex: admin, gestor)',
-            schema: { type: 'string', enum: ['admin', 'gestor'] },
-          },
+          { $ref: '#/components/parameters/AuthorizationHeader' },
+          { $ref: '#/components/parameters/UserIdPath' },
+          { $ref: '#/components/parameters/RoleIdPath' },
         ],
         responses: {
-          '204': { description: 'Role removida com sucesso (sem corpo)' },
+          '204': { description: 'Role removida com sucesso, sem corpo' },
           '400': {
-            description: 'Role inválida, userId malformado ou tentativa de remover role padrão',
+            description: 'Params inválidos ou tentativa de remover a role padrão',
             content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } },
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+                examples: {
+                  validation: {
+                    summary: 'Params inválidos',
+                    value: errorExample('VALIDATION_ERROR', 'Dados inválidos', {
+                      roleId: ['Role inválida. Valores aceitos: admin, vendedor, gestor'],
+                    }),
+                  },
+                  defaultRole: {
+                    summary: 'Role padrão',
+                    value: errorExample(
+                      'DEFAULT_ROLE_REQUIRED',
+                      'Não é possível remover a role padrão',
+                    ),
+                  },
+                },
+              },
             },
           },
           '401': {
@@ -506,15 +702,39 @@ export const swaggerSpec: OpenAPIV3.Document = {
             },
           },
           '403': {
-            description: 'Acesso negado — requer role admin',
+            description: 'Token válido, mas sem role admin',
             content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } },
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+                example: errorExample('FORBIDDEN', 'Acesso negado: requer role admin'),
+              },
             },
           },
           '404': {
-            description: 'Usuário não encontrado ou não possui essa role',
+            description: 'Usuário não encontrado ou role não atribuída',
             content: {
-              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } },
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+                examples: {
+                  user: {
+                    summary: 'Usuário não encontrado',
+                    value: errorExample('USER_NOT_FOUND', 'Usuário não encontrado'),
+                  },
+                  role: {
+                    summary: 'Role não atribuída',
+                    value: errorExample('ROLE_NOT_ASSIGNED', 'Usuário não possui essa role'),
+                  },
+                },
+              },
+            },
+          },
+          '500': {
+            description: 'Erro interno sem exposição de stack trace',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+                example: errorExample('INTERNAL_SERVER_ERROR', 'Erro interno no servidor'),
+              },
             },
           },
         },
@@ -522,6 +742,13 @@ export const swaggerSpec: OpenAPIV3.Document = {
     },
   },
 };
+
+const swaggerOptions: Options = {
+  definition: swaggerDefinition,
+  apis: ['./src/**/*.ts'],
+};
+
+export const swaggerSpec = swaggerJSDoc(swaggerOptions) as OpenAPIV3.Document;
 
 const signupPath = swaggerSpec.paths['/auth/signup'];
 if (signupPath) {

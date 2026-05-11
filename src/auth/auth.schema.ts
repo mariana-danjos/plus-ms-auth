@@ -45,8 +45,78 @@ export const assignRoleSchema = z.object({
   }),
 });
 
+const refreshTokenValueSchema = z
+  .string({
+    required_error: 'Refresh token obrigatório',
+    invalid_type_error: 'Refresh token inválido',
+  })
+  .trim()
+  .min(1, 'Refresh token obrigatório');
+
+const optionalHeaderValue = (schema: z.ZodString) =>
+  z.preprocess((value) => {
+    if (Array.isArray(value)) {
+      return value[0];
+    }
+    return value;
+  }, schema.optional());
+
+export const authorizationHeaderValueSchema = z.preprocess(
+  (value) => {
+    if (Array.isArray(value)) {
+      return value[0];
+    }
+    return value;
+  },
+  z
+    .string({
+      required_error: 'Authorization header obrigatório',
+      invalid_type_error: 'Authorization header inválido',
+    })
+    .trim()
+    .regex(/^Bearer\s+\S+$/, 'Authorization header deve usar Bearer token'),
+);
+
+export const userIdParamsSchema = z.object({
+  userId: z.string().uuid('ID de usuário inválido'),
+});
+
+export const userRoleParamsSchema = userIdParamsSchema.extend({
+  roleId: z.enum(VALID_ROLES, {
+    errorMap: () => ({ message: `Role inválida. Valores aceitos: ${VALID_ROLES.join(', ')}` }),
+  }),
+});
+
+export const refreshTokenRequestSchema = z
+  .object({
+    body: z
+      .object({
+        refresh: refreshTokenValueSchema.optional(),
+        refreshToken: refreshTokenValueSchema.optional(),
+      })
+      .passthrough()
+      .default({}),
+    headers: z
+      .object({
+        'x-refresh-token': optionalHeaderValue(refreshTokenValueSchema),
+      })
+      .passthrough(),
+  })
+  .superRefine(({ body, headers }, ctx) => {
+    if (!body.refresh && !body.refreshToken && !headers['x-refresh-token']) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['refresh'],
+        message: 'Refresh token obrigatório',
+      });
+    }
+  })
+  .transform(({ body, headers }) => ({
+    refresh: body.refresh ?? body.refreshToken ?? headers['x-refresh-token'] ?? '',
+  }));
+
 export const refreshTokenSchema = z.object({
-  refresh: z.string({ required_error: 'Refresh token obrigatório' }).min(1, 'Refresh token obrigatório'),
+  refresh: refreshTokenValueSchema,
 });
 
 export type SignupInput = z.infer<typeof signupSchema>;

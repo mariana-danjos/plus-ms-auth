@@ -236,6 +236,23 @@ describe('MS Auth endpoints e middlewares', () => {
     expect(payload.roles).toEqual(['vendedor']);
   });
 
+  it('renova access token com refresh token no header', async () => {
+    const refresh = refreshToken();
+    mockDb((sql) => {
+      if (sql.includes('FROM refresh_tokens')) {
+        return { rows: [user], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 0 };
+    });
+
+    const res = await request(app).post('/auth/refresh').set('X-Refresh-Token', refresh);
+    const payload = jwt.decode(res.body.token) as { email: string; roles: string[] };
+
+    expect(res.status).toBe(200);
+    expect(payload.email).toBe(user.email);
+    expect(payload.roles).toEqual(['vendedor']);
+  });
+
   it('retorna 401 para refresh token revogado', async () => {
     mockDb(() => ({ rows: [], rowCount: 0 }));
 
@@ -288,6 +305,14 @@ describe('MS Auth endpoints e middlewares', () => {
 
     expect(res.status).toBe(401);
     expect(res.body.error.code).toBe('TOKEN_MISSING');
+  });
+
+  it('retorna 401 em /auth/me com Authorization malformado', async () => {
+    const res = await request(app).get('/auth/me').set('Authorization', 'Token invalido');
+
+    expect(res.status).toBe(401);
+    expect(res.body.error.code).toBe('TOKEN_INVALID');
+    expect(queryMock).not.toHaveBeenCalled();
   });
 
   it('retorna 401 em /auth/me com token expirado', async () => {
@@ -420,6 +445,30 @@ describe('MS Auth endpoints e middlewares', () => {
     expect(res.body.error.code).toBe('VALIDATION_ERROR');
   });
 
+  it('valida userId malformado antes de atribuir role', async () => {
+    mockDb((sql) => {
+      if (sql.includes('FROM token_blocklist')) {
+        return { rows: [], rowCount: 0 };
+      }
+      return { rows: [], rowCount: 0 };
+    });
+
+    const res = await request(app)
+      .post('/auth/users/id-invalido/roles')
+      .set(
+        'Authorization',
+        `Bearer ${accessToken({ sub: admin.id, email: admin.email, roles: ['admin'] })}`,
+      )
+      .send({ role: 'gestor' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    expect(res.body.error.details.userId).toContain('ID de usuário inválido');
+    expect(queryMock.mock.calls.some(([sql]) => String(sql).includes('UPDATE users SET role'))).toBe(
+      false,
+    );
+  });
+
   it('remove role e volta usuário para vendedor', async () => {
     mockDb((sql) => {
       if (sql.includes('FROM token_blocklist')) {
@@ -477,5 +526,23 @@ describe('MS Auth endpoints e middlewares', () => {
     expect(badJson.body.error.code).toBe('INVALID_JSON');
     expect(notFound.status).toBe(404);
     expect(notFound.body.error.code).toBe('ROUTE_NOT_FOUND');
+  });
+
+  it('mapeia erros internos sem expor detalhes ou stack trace', async () => {
+    mockDb(() => {
+      throw new Error('detalhe interno sensível');
+    });
+
+    const res = await request(app).post('/auth/login').send({
+      email: 'erro-interno@loja.com',
+      password: 'Senha@123',
+    });
+    const body = JSON.stringify(res.body);
+
+    expect(res.status).toBe(500);
+    expect(res.body.error.code).toBe('INTERNAL_SERVER_ERROR');
+    expect(res.body.error.message).toBe('Erro interno no servidor');
+    expect(body).not.toContain('detalhe interno sensível');
+    expect(body).not.toContain('stack');
   });
 });
