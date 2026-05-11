@@ -20,6 +20,7 @@ const DUMMY_HASH = '$2b$12$invalidhashtopreventtimingattacksonlogin0000000000000
 interface DbUser {
   id: string;
   email: string;
+  name: string;
   role: string;
   password_hash: string;
 }
@@ -28,9 +29,9 @@ function hashRefreshToken(token: string): string {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
 
-function buildTokens(userId: string, email: string, role: string) {
+function buildTokens(userId: string, email: string, name: string, role: string) {
   const token = jwt.sign(
-    { sub: userId, email, roles: [role] },
+    { sub: userId, email, name, roles: [role] },
     ACCESS_SECRET,
     { expiresIn: 900 },
   );
@@ -52,14 +53,19 @@ async function persistRefreshToken(userId: string, refresh: string): Promise<voi
 export async function signupService(
   email: string,
   password: string,
-): Promise<{ token: string; refresh: string; userId: string }> {
+  name: string,
+): Promise<{
+  token: string;
+  refreshToken: string;
+  user: { id: string; email: string; name: string; roles: string[] };
+}> {
   const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
 
   let user: DbUser;
   try {
     const { rows } = await pool.query<DbUser>(
-      `INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id, email, role, password_hash`,
-      [email, passwordHash],
+      `INSERT INTO users (email, password_hash, name) VALUES ($1, $2, $3) RETURNING id, email, name, role, password_hash`,
+      [email, passwordHash, name],
     );
     user = rows[0];
   } catch (err: unknown) {
@@ -69,10 +75,14 @@ export async function signupService(
     throw err;
   }
 
-  const { token, refresh } = buildTokens(user.id, user.email, user.role);
+  const { token, refresh } = buildTokens(user.id, user.email, user.name, user.role);
   await persistRefreshToken(user.id, refresh);
 
-  return { token, refresh, userId: user.id };
+  return {
+    token,
+    refreshToken: refresh,
+    user: { id: user.id, email: user.email, name: user.name, roles: [user.role] },
+  };
 }
 
 // ── Login ──────────────────────────────────────────────────────────────────
@@ -80,9 +90,13 @@ export async function signupService(
 export async function loginService(
   email: string,
   password: string,
-): Promise<{ token: string; refresh: string; user: { id: string; email: string; roles: string[] } }> {
+): Promise<{
+  token: string;
+  refreshToken: string;
+  user: { id: string; email: string; name: string; roles: string[] };
+}> {
   const { rows } = await pool.query<DbUser>(
-    `SELECT id, email, role, password_hash FROM users WHERE email = $1`,
+    `SELECT id, email, name, role, password_hash FROM users WHERE email = $1`,
     [email],
   );
 
@@ -95,13 +109,13 @@ export async function loginService(
     throw new AppError('Credenciais inválidas', 401, 'INVALID_CREDENTIALS');
   }
 
-  const { token, refresh } = buildTokens(dbUser.id, dbUser.email, dbUser.role);
+  const { token, refresh } = buildTokens(dbUser.id, dbUser.email, dbUser.name, dbUser.role);
   await persistRefreshToken(dbUser.id, refresh);
 
   return {
     token,
-    refresh,
-    user: { id: dbUser.id, email: dbUser.email, roles: [dbUser.role] },
+    refreshToken: refresh,
+    user: { id: dbUser.id, email: dbUser.email, name: dbUser.name, roles: [dbUser.role] },
   };
 }
 
@@ -110,13 +124,13 @@ export async function loginService(
 export async function assignRoleService(
   userId: string,
   role: Role,
-): Promise<{ id: string; email: string; roles: string[] }> {
+): Promise<{ id: string; email: string; name: string; roles: string[] }> {
   let rows: DbUser[];
   let rowCount: number | null;
 
   try {
     ({ rows, rowCount } = await pool.query<DbUser>(
-      `UPDATE users SET role = $1 WHERE id = $2 RETURNING id, email, role, password_hash`,
+      `UPDATE users SET role = $1 WHERE id = $2 RETURNING id, email, name, role, password_hash`,
       [role, userId],
     ));
   } catch (err: unknown) {
@@ -132,12 +146,16 @@ export async function assignRoleService(
   }
 
   const user = rows[0];
-  return { id: user.id, email: user.email, roles: [user.role] };
+  return { id: user.id, email: user.email, name: user.name, roles: [user.role] };
 }
 
 // ── Logout ─────────────────────────────────────────────────────────────────
 
-export async function refreshAccessTokenService(refresh: string): Promise<{ token: string }> {
+export async function refreshAccessTokenService(refresh: string): Promise<{
+  token: string;
+  refreshToken: string;
+  user: { id: string; email: string; name: string; roles: string[] };
+}> {
   let payload: { sub: string };
   try {
     payload = jwt.verify(refresh, REFRESH_SECRET) as { sub: string };
@@ -146,8 +164,8 @@ export async function refreshAccessTokenService(refresh: string): Promise<{ toke
   }
 
   const tokenHash = hashRefreshToken(refresh);
-  const { rows } = await pool.query<Pick<DbUser, 'id' | 'email' | 'role'>>(
-    `SELECT users.id, users.email, users.role
+  const { rows } = await pool.query<Pick<DbUser, 'id' | 'email' | 'name' | 'role'>>(
+    `SELECT users.id, users.email, users.name, users.role
        FROM refresh_tokens
        INNER JOIN users ON users.id = refresh_tokens.user_id
       WHERE refresh_tokens.token = $1
@@ -161,12 +179,16 @@ export async function refreshAccessTokenService(refresh: string): Promise<{ toke
     throw new AppError('Refresh token revogado ou expirado', 401, 'REFRESH_TOKEN_REVOKED');
   }
 
+  const token = jwt.sign(
+    { sub: user.id, email: user.email, name: user.name, roles: [user.role] },
+    ACCESS_SECRET,
+    { expiresIn: 900 },
+  );
+
   return {
-    token: jwt.sign(
-      { sub: user.id, email: user.email, roles: [user.role] },
-      ACCESS_SECRET,
-      { expiresIn: 900 },
-    ),
+    token,
+    refreshToken: refresh,
+    user: { id: user.id, email: user.email, name: user.name, roles: [user.role] },
   };
 }
 
@@ -200,7 +222,7 @@ export async function removeRoleService(userId: string, roleId: string): Promise
 
   try {
     ({ rows, rowCount } = await pool.query<DbUser>(
-      `SELECT id, role FROM users WHERE id = $1`,
+      `SELECT id, email, name, role FROM users WHERE id = $1`,
       [userId],
     ));
   } catch (err: unknown) {
