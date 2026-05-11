@@ -3,6 +3,8 @@ import * as jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { pool } from '../db';
 import { VALID_ROLES, type Role } from './auth.schema';
+import { AppError } from '../errors';
+import { hashToken, type AccessTokenPayload } from '../middleware/authenticateAccessToken';
 
 const BCRYPT_ROUNDS = 12;
 const ACCESS_SECRET =
@@ -20,16 +22,6 @@ interface DbUser {
   email: string;
   role: string;
   password_hash: string;
-}
-
-export class AppError extends Error {
-  constructor(
-    message: string,
-    public readonly status: number,
-  ) {
-    super(message);
-    this.name = 'AppError';
-  }
 }
 
 function hashRefreshToken(token: string): string {
@@ -72,7 +64,7 @@ export async function signupService(
     user = rows[0];
   } catch (err: unknown) {
     if ((err as { code?: string }).code === '23505') {
-      throw new AppError('Email já cadastrado', 409);
+      throw new AppError('Email já cadastrado', 409, 'EMAIL_ALREADY_EXISTS');
     }
     throw err;
   }
@@ -100,7 +92,7 @@ export async function loginService(
   const passwordMatch = await bcrypt.compare(password, dbUser?.password_hash ?? DUMMY_HASH);
 
   if (!dbUser || !passwordMatch) {
-    throw new AppError('Credenciais inválidas', 401);
+    throw new AppError('Credenciais inválidas', 401, 'INVALID_CREDENTIALS');
   }
 
   const { token, refresh } = buildTokens(dbUser.id, dbUser.email, dbUser.role);
@@ -130,13 +122,13 @@ export async function assignRoleService(
   } catch (err: unknown) {
     // 22P02 = invalid_text_representation (UUID malformado)
     if ((err as { code?: string }).code === '22P02') {
-      throw new AppError('ID de usuário inválido', 400);
+      throw new AppError('ID de usuário inválido', 400, 'INVALID_USER_ID');
     }
     throw err;
   }
 
   if (!rowCount) {
-    throw new AppError('Usuário não encontrado', 404);
+    throw new AppError('Usuário não encontrado', 404, 'USER_NOT_FOUND');
   }
 
   const user = rows[0];
@@ -145,26 +137,62 @@ export async function assignRoleService(
 
 // ── Logout ─────────────────────────────────────────────────────────────────
 
-export async function logoutService(token: string): Promise<void> {
-  const decoded = jwt.decode(token) as { sub?: string; exp?: number } | null;
-  const expiresAt = decoded?.exp
-    ? new Date(decoded.exp * 1000)
+export async function refreshAccessTokenService(refresh: string): Promise<{ token: string }> {
+  let payload: { sub: string };
+  try {
+    payload = jwt.verify(refresh, REFRESH_SECRET) as { sub: string };
+  } catch {
+    throw new AppError('Refresh token inválido ou expirado', 401, 'REFRESH_TOKEN_INVALID');
+  }
+
+  const tokenHash = hashRefreshToken(refresh);
+  const { rows } = await pool.query<Pick<DbUser, 'id' | 'email' | 'role'>>(
+    `SELECT users.id, users.email, users.role
+       FROM refresh_tokens
+       INNER JOIN users ON users.id = refresh_tokens.user_id
+      WHERE refresh_tokens.token = $1
+        AND refresh_tokens.user_id = $2
+        AND refresh_tokens.expires_at > NOW()`,
+    [tokenHash, payload.sub],
+  );
+
+  const user = rows[0];
+  if (!user) {
+    throw new AppError('Refresh token revogado ou expirado', 401, 'REFRESH_TOKEN_REVOKED');
+  }
+
+  return {
+    token: jwt.sign(
+      { sub: user.id, email: user.email, roles: [user.role] },
+      ACCESS_SECRET,
+      { expiresIn: 900 },
+    ),
+  };
+}
+
+export async function logoutService(
+  token: string,
+  payload: AccessTokenPayload,
+): Promise<void> {
+  const expiresAt = payload.exp
+    ? new Date(payload.exp * 1000)
     : new Date(Date.now() + 900_000);
 
   await pool.query(
     `INSERT INTO token_blocklist (token, expires_at) VALUES ($1, $2) ON CONFLICT (token) DO NOTHING`,
-    [token, expiresAt],
+    [hashToken(token), expiresAt],
   );
 
-  const userId = decoded?.sub;
-  if (userId) {
-    await pool.query(`DELETE FROM refresh_tokens WHERE user_id = $1`, [userId]);
-  }
+  await pool.query(`DELETE FROM refresh_tokens WHERE user_id = $1`, [payload.sub]);
 }
 
 export async function removeRoleService(userId: string, roleId: string): Promise<void> {
   if (!VALID_ROLES.includes(roleId as Role)) {
-    throw new AppError(`Role inválida. Valores aceitos: ${VALID_ROLES.join(', ')}`, 400);
+    throw new AppError(
+      `Role inválida. Valores aceitos: ${VALID_ROLES.join(', ')}`,
+      400,
+      'INVALID_ROLE',
+    );
   }
 
   let rows: DbUser[];
@@ -177,24 +205,24 @@ export async function removeRoleService(userId: string, roleId: string): Promise
     ));
   } catch (err: unknown) {
     if ((err as { code?: string }).code === '22P02') {
-      throw new AppError('ID de usuário inválido', 400);
+      throw new AppError('ID de usuário inválido', 400, 'INVALID_USER_ID');
     }
     throw err;
   }
 
   if (!rowCount) {
-    throw new AppError('Usuário não encontrado', 404);
+    throw new AppError('Usuário não encontrado', 404, 'USER_NOT_FOUND');
   }
 
   const user = rows[0];
 
   if (user.role !== roleId) {
-    throw new AppError('Usuário não possui essa role', 404);
+    throw new AppError('Usuário não possui essa role', 404, 'ROLE_NOT_ASSIGNED');
   }
 
   const DEFAULT_ROLE: Role = 'vendedor';
   if (roleId === DEFAULT_ROLE) {
-    throw new AppError('Não é possível remover a role padrão', 400);
+    throw new AppError('Não é possível remover a role padrão', 400, 'DEFAULT_ROLE_REQUIRED');
   }
 
   await pool.query(`UPDATE users SET role = $1 WHERE id = $2`, [DEFAULT_ROLE, userId]);

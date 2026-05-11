@@ -1,14 +1,18 @@
 import { z } from 'zod';
+import { sanitizeText } from '../security/sanitize';
 
 export const signupSchema = z
   .object({
     email: z
       .string({ required_error: 'Email é obrigatório' })
+      .trim()
+      .toLowerCase()
       .email('Formato de email inválido')
       .regex(
         /^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$/,
         'Formato de email inválido',
-      ),
+      )
+      .transform(sanitizeText),
     password: z
       .string({ required_error: 'Senha é obrigatória' })
       .min(8, 'Senha deve ter no mínimo 8 caracteres')
@@ -25,7 +29,10 @@ export const signupSchema = z
 export const loginSchema = z.object({
   email: z
     .string({ required_error: 'Email é obrigatório' })
-    .email('Formato de email inválido'),
+    .trim()
+    .toLowerCase()
+    .email('Formato de email inválido')
+    .transform(sanitizeText),
   password: z.string({ required_error: 'Senha é obrigatória' }).min(1, 'Senha é obrigatória'),
 });
 
@@ -38,6 +45,11 @@ export const assignRoleSchema = z.object({
   }),
 });
 
+export const refreshTokenSchema = z.object({
+  refresh: z.string({ required_error: 'Refresh token obrigatório' }).min(1, 'Refresh token obrigatório'),
+});
+
 export type SignupInput = z.infer<typeof signupSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type AssignRoleInput = z.infer<typeof assignRoleSchema>;
+export type RefreshTokenInput = z.infer<typeof refreshTokenSchema>;

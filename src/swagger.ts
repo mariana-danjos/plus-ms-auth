@@ -22,23 +22,38 @@ export const swaggerSpec: OpenAPIV3.Document = {
         type: 'object',
         required: ['error'],
         properties: {
-          error: { type: 'string', example: 'Mensagem de erro' },
+          error: {
+            type: 'object',
+            required: ['code', 'message'],
+            properties: {
+              code: { type: 'string', example: 'TOKEN_REVOKED' },
+              message: { type: 'string', example: 'Token revogado' },
+              details: { nullable: true },
+            },
+          },
         },
       },
       ValidationErrorResponse: {
         type: 'object',
-        required: ['error', 'details'],
+        required: ['error'],
         properties: {
-          error: { type: 'string', example: 'Dados inválidos' },
-          details: {
+          error: {
             type: 'object',
-            additionalProperties: {
-              type: 'array',
-              items: { type: 'string' },
-            },
-            example: {
-              email: ['Formato de email inválido'],
-              password: ['Senha deve ter no mínimo 8 caracteres'],
+            required: ['code', 'message', 'details'],
+            properties: {
+              code: { type: 'string', example: 'VALIDATION_ERROR' },
+              message: { type: 'string', example: 'Dados inválidos' },
+              details: {
+                type: 'object',
+                additionalProperties: {
+                  type: 'array',
+                  items: { type: 'string' },
+                },
+                example: {
+                  email: ['Formato de email inválido'],
+                  password: ['Senha deve ter no mínimo 8 caracteres'],
+                },
+              },
             },
           },
         },

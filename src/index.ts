@@ -1,79 +1,8 @@
 import 'dotenv/config';
-import express from 'express';
-import * as jwt from 'jsonwebtoken';
-import swaggerUi from 'swagger-ui-express';
 import { logger } from './logger';
-import { pool } from './db';
-import authRouter from './auth/auth.router';
-import { swaggerSpec } from './swagger';
-import crypto from 'crypto';
+import { createApp } from './app';
 
-const app = express();
-app.use(express.json());
-
-app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
-
-const ACCESS_SECRET = process.env.JWT_ACCESS_SECRET ?? process.env.JWT_SECRET ?? 'dev-access-secret';
-const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET ?? process.env.JWT_SECRET ?? 'dev-refresh-secret';
 const PORT = process.env.PORT ?? 3001;
-
-app.use('/auth', authRouter);
-
-// POST /auth/refresh — TODO: validar contra refresh_tokens e token_blocklist
-app.post('/auth/refresh', async (req, res) => {
-  const { refresh } = req.body as { refresh?: string };
-  if (!refresh) {
-    res.status(400).json({ error: 'refresh token obrigatório' });
-    return;
-  }
-  try {
-    const payload = jwt.verify(refresh, REFRESH_SECRET) as { sub: string };
-
-    // Valida se o refresh token ainda existe no banco (não foi revogado pelo logout)
-    const tokenHash = crypto.createHash('sha256').update(refresh).digest('hex');
-    const { rows } = await pool.query(
-      `SELECT 1 FROM refresh_tokens WHERE token = $1 AND user_id = $2 AND expires_at > NOW()`,
-      [tokenHash, payload.sub],
-    );
-
-    if (rows.length === 0) {
-      res.status(401).json({ error: 'Refresh token revogado ou expirado' });
-      return;
-    }
-
-    const token = jwt.sign({ sub: payload.sub }, ACCESS_SECRET, { expiresIn: 900 });
-    res.json({ token });
-  } catch {
-    res.status(401).json({ error: 'Refresh token inválido ou expirado' });
-  }
-});
-
-app.get('/auth/me', async (req, res) => {
-  const auth = req.headers.authorization;
-  if (!auth?.startsWith('Bearer ')) {
-    res.status(401).json({ error: 'Token não fornecido' });
-    return;
-  }
-
-  const rawToken = auth.slice(7);
-  let payload: { sub: string; email: string; roles: string[] };
-  try {
-    payload = jwt.verify(rawToken, ACCESS_SECRET) as typeof payload;
-  } catch {
-    res.status(401).json({ error: 'Token inválido ou expirado' });
-    return;
-  }
-
-  const { rows } = await pool.query(
-    `SELECT 1 FROM token_blocklist WHERE token = $1`,
-    [rawToken],
-  );
-  if (rows.length > 0) {
-    res.status(401).json({ error: 'Token revogado' });
-    return;
-  }
-
-  res.json({ id: payload.sub, email: payload.email, roles: payload.roles });
-});
+const app = createApp();
 
 app.listen(PORT, () => logger.info({ port: PORT }, 'plus-ms-auth iniciado'));

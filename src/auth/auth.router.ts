@@ -2,10 +2,22 @@ import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import type { Request } from 'express';
 import { requireRole } from '../middleware/requireRole';
+import { asyncHandler } from '../middleware/asyncHandler';
+import { validateBody } from '../middleware/validateBody';
+import { authenticateAccessToken } from '../middleware/authenticateAccessToken';
+import { errorBody } from '../errors';
+import {
+  signupSchema,
+  loginSchema,
+  assignRoleSchema,
+  refreshTokenSchema,
+} from './auth.schema';
 import {
   signupHandler,
   loginHandler,
   logoutHandler,
+  refreshTokenHandler,
+  meHandler,
   listRolesHandler,
   assignRoleHandler,
   removeRoleHandler,
@@ -16,7 +28,7 @@ const signupLimiter = rateLimit({
   max: 5,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: 'Muitas tentativas de cadastro. Aguarde 1 minuto.' },
+  message: errorBody('RATE_LIMITED', 'Muitas tentativas de cadastro. Aguarde 1 minuto.'),
 });
 
 const loginLimiter = rateLimit({
@@ -29,17 +41,28 @@ const loginLimiter = rateLimit({
     const email = (req.body as { email?: string }).email ?? req.ip ?? 'unknown';
     return `login:${email.toLowerCase()}`;
   },
-  message: { error: 'Muitas tentativas de login. Aguarde 1 minuto.' },
+  message: errorBody('RATE_LIMITED', 'Muitas tentativas de login. Aguarde 1 minuto.'),
 });
 
 const router = Router();
 
-router.post('/register', signupLimiter, signupHandler);
-router.post('/login', loginLimiter, loginHandler);
-router.post('/logout', logoutHandler);
+router.post('/register', signupLimiter, validateBody(signupSchema), asyncHandler(signupHandler));
+router.post('/login', loginLimiter, validateBody(loginSchema), asyncHandler(loginHandler));
+router.post('/refresh', validateBody(refreshTokenSchema), asyncHandler(refreshTokenHandler));
+router.post('/logout', asyncHandler(logoutHandler));
+router.get('/me', asyncHandler(authenticateAccessToken), meHandler);
 
 router.get('/roles', listRolesHandler);
-router.post('/users/:userId/roles', requireRole('admin'), assignRoleHandler);
-router.delete('/users/:userId/roles/:roleId', requireRole('admin'), removeRoleHandler);
+router.post(
+  '/users/:userId/roles',
+  asyncHandler(requireRole('admin')),
+  validateBody(assignRoleSchema),
+  asyncHandler(assignRoleHandler),
+);
+router.delete(
+  '/users/:userId/roles/:roleId',
+  asyncHandler(requireRole('admin')),
+  asyncHandler(removeRoleHandler),
+);
 
 export default router;
