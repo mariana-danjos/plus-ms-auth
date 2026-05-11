@@ -11,6 +11,7 @@ const ACCESS_SECRET =
 export interface AccessTokenPayload {
   sub: string;
   email: string;
+  name: string;
   roles: string[];
   exp?: number;
 }
@@ -64,7 +65,7 @@ export async function authenticateAccessToken(
     const payload = verifyAccessToken(token);
     await assertTokenNotRevoked(token);
 
-    req.user = { id: payload.sub, email: payload.email, roles: payload.roles };
+    req.user = { id: payload.sub, email: payload.email, name: payload.name, roles: payload.roles };
     next();
   } catch (err) {
     next(err);

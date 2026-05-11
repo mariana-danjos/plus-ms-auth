@@ -15,10 +15,10 @@ import { getBearerToken, verifyAccessToken } from '../middleware/authenticateAcc
 
 export async function signupHandler(req: Request, res: Response): Promise<void> {
   const ip = req.ip ?? 'unknown';
-  const { email, password } = req.body as { email: string; password: string };
-  const result = await signupService(email, password);
+  const { email, password, name } = req.body as { email: string; password: string; name: string };
+  const result = await signupService(email, password, name);
 
-  logger.info({ userId: result.userId, email, ip, event: 'signup.success' }, 'Usuário cadastrado');
+  logger.info({ userId: result.user.id, email, ip, event: 'signup.success' }, 'Usuário cadastrado');
   res.status(201).json(result);
 }
 

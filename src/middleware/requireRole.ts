@@ -21,7 +21,7 @@ export function requireRole(...allowedRoles: string[]) {
       );
     }
 
-    req.user = { id: payload.sub, email: payload.email, roles: payload.roles };
+    req.user = { id: payload.sub, email: payload.email, name: payload.name, roles: payload.roles };
     next();
   };
 }
