@@ -19,5 +19,11 @@ export default [
     languageOptions: {
       globals: { ...globals.node, ...globals.jest },
     },
+    rules: {
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
+    },
   },
 ];
