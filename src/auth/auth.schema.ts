@@ -15,7 +15,7 @@ export const signupSchema = z
       .toLowerCase()
       .email('Formato de email inválido')
       .regex(
-        /^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$/,
+        /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/,
         'Formato de email inválido',
       )
       .transform(sanitizeText),
