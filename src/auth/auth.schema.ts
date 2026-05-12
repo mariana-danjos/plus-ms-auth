@@ -3,6 +3,12 @@ import { sanitizeText } from '../security/sanitize';
 
 export const signupSchema = z
   .object({
+    name: z
+      .string({ required_error: 'Nome é obrigatório' })
+      .trim()
+      .min(2, 'Nome deve ter no mínimo 2 caracteres')
+      .max(100, 'Nome muito longo')
+      .transform(sanitizeText),
     email: z
       .string({ required_error: 'Email é obrigatório' })
       .trim()

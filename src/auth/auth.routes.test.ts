@@ -23,6 +23,7 @@ const app = createApp();
 const user = {
   id: '550e8400-e29b-41d4-a716-446655440000',
   email: 'vendedor@loja.com',
+  name: 'Vendedor Teste',
   role: 'vendedor',
   password_hash: bcrypt.hashSync('Senha@123', 12),
 };
@@ -40,6 +41,7 @@ function accessToken(overrides: Record<string, unknown> = {}) {
     {
       sub: user.id,
       email: user.email,
+      name: user.name,
       roles: [user.role],
       ...overrides,
     },
@@ -57,6 +59,7 @@ function expiredAccessToken(overrides: Record<string, unknown> = {}) {
     {
       sub: user.id,
       email: user.email,
+      name: user.name,
       roles: [user.role],
       ...overrides,
     },
@@ -139,15 +142,21 @@ describe('MS Auth endpoints e middlewares', () => {
 
     const res = await request(app).post('/auth/signup').send({
       email: ' VENDEDOR@LOJA.COM ',
+      name: 'Vendedor Teste',
       password: 'Senha@123',
       password_confirm: 'Senha@123',
     });
 
     expect(res.status).toBe(201);
-    expect(res.body.userId).toBe(user.id);
+    expect(res.body.user).toEqual({
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      roles: ['vendedor'],
+    });
     expect(res.body.token).toEqual(expect.any(String));
-    expect(res.body.refresh).toEqual(expect.any(String));
-    expect(queryMock.mock.calls[0][0]).toContain('VALUES ($1, $2)');
+    expect(res.body.refreshToken).toEqual(expect.any(String));
+    expect(queryMock.mock.calls[0][0]).toContain('VALUES ($1, $2, $3)');
   });
 
   it('retorna conflito quando email já existe', async () => {
@@ -160,6 +169,7 @@ describe('MS Auth endpoints e middlewares', () => {
 
     const res = await request(app).post('/auth/signup').send({
       email: 'vendedor@loja.com',
+      name: 'Duplicado',
       password: 'Senha@123',
       password_confirm: 'Senha@123',
     });
@@ -168,9 +178,34 @@ describe('MS Auth endpoints e middlewares', () => {
     expect(res.body.error.code).toBe('EMAIL_ALREADY_EXISTS');
   });
 
+  it('rejeita signup sem nome', async () => {
+    const res = await request(app).post('/auth/signup').send({
+      email: 'sem-nome@loja.com',
+      password: 'Senha@123',
+      password_confirm: 'Senha@123',
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    expect(res.body.error.details.name).toContain('Nome é obrigatório');
+  });
+
+  it('rejeita signup com nome curto', async () => {
+    const res = await request(app).post('/auth/signup').send({
+      email: 'nome-curto@loja.com',
+      name: 'A',
+      password: 'Senha@123',
+      password_confirm: 'Senha@123',
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    expect(res.body.error.details.name).toContain('Nome deve ter no mínimo 2 caracteres');
+  });
+
   it('realiza login e emite access/refresh tokens', async () => {
     mockDb((sql) => {
-      if (sql.includes('SELECT id, email, role, password_hash FROM users')) {
+      if (sql.includes('SELECT id, email, name, role, password_hash FROM users')) {
         return { rows: [user], rowCount: 1 };
       }
       if (sql.includes('INSERT INTO refresh_tokens')) {
@@ -185,9 +220,14 @@ describe('MS Auth endpoints e middlewares', () => {
     });
 
     expect(res.status).toBe(200);
-    expect(res.body.user.roles).toEqual(['vendedor']);
+    expect(res.body.user).toEqual({
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      roles: ['vendedor'],
+    });
     expect(res.body.token).toEqual(expect.any(String));
-    expect(res.body.refresh).toEqual(expect.any(String));
+    expect(res.body.refreshToken).toEqual(expect.any(String));
   });
 
   it('nega login quando email não existe sem revelar se email está cadastrado', async () => {
@@ -204,7 +244,7 @@ describe('MS Auth endpoints e middlewares', () => {
 
   it('nega login com senha errada', async () => {
     mockDb((sql) => {
-      if (sql.includes('SELECT id, email, role, password_hash FROM users')) {
+      if (sql.includes('SELECT id, email, name, role, password_hash FROM users')) {
         return { rows: [user], rowCount: 1 };
       }
       return { rows: [], rowCount: 0 };
@@ -229,11 +269,19 @@ describe('MS Auth endpoints e middlewares', () => {
     });
 
     const res = await request(app).post('/auth/refresh').send({ refresh });
-    const payload = jwt.decode(res.body.token) as { email: string; roles: string[] };
+    const payload = jwt.decode(res.body.token) as { email: string; name: string; roles: string[] };
 
     expect(res.status).toBe(200);
     expect(payload.email).toBe(user.email);
+    expect(payload.name).toBe(user.name);
     expect(payload.roles).toEqual(['vendedor']);
+    expect(res.body.user).toEqual({
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      roles: ['vendedor'],
+    });
+    expect(res.body.refreshToken).toEqual(expect.any(String));
   });
 
   it('renova access token com refresh token no header', async () => {
@@ -246,11 +294,19 @@ describe('MS Auth endpoints e middlewares', () => {
     });
 
     const res = await request(app).post('/auth/refresh').set('X-Refresh-Token', refresh);
-    const payload = jwt.decode(res.body.token) as { email: string; roles: string[] };
+    const payload = jwt.decode(res.body.token) as { email: string; name: string; roles: string[] };
 
     expect(res.status).toBe(200);
     expect(payload.email).toBe(user.email);
+    expect(payload.name).toBe(user.name);
     expect(payload.roles).toEqual(['vendedor']);
+    expect(res.body.user).toEqual({
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      roles: ['vendedor'],
+    });
+    expect(res.body.refreshToken).toEqual(expect.any(String));
   });
 
   it('retorna 401 para refresh token revogado', async () => {
@@ -296,6 +352,7 @@ describe('MS Auth endpoints e middlewares', () => {
     expect(res.body).toEqual({
       id: user.id,
       email: user.email,
+      name: user.name,
       roles: ['vendedor'],
     });
   });
@@ -406,6 +463,7 @@ describe('MS Auth endpoints e middlewares', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.user.roles).toEqual(['gestor']);
+    expect(res.body.user.name).toBe(user.name);
   });
 
   it('nega atribuição de role para vendedor', async () => {
@@ -474,7 +532,7 @@ describe('MS Auth endpoints e middlewares', () => {
       if (sql.includes('FROM token_blocklist')) {
         return { rows: [], rowCount: 0 };
       }
-      if (sql.includes('SELECT id, role FROM users')) {
+      if (sql.includes('SELECT id, email, name, role FROM users')) {
         return { rows: [{ id: user.id, role: 'gestor' }], rowCount: 1 };
       }
       if (sql.includes('UPDATE users SET role')) {
@@ -498,7 +556,7 @@ describe('MS Auth endpoints e middlewares', () => {
       if (sql.includes('FROM token_blocklist')) {
         return { rows: [], rowCount: 0 };
       }
-      if (sql.includes('SELECT id, role FROM users')) {
+      if (sql.includes('SELECT id, email, name, role FROM users')) {
         return { rows: [{ id: user.id, role: 'vendedor' }], rowCount: 1 };
       }
       return { rows: [], rowCount: 0 };

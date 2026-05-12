@@ -111,8 +111,15 @@ const swaggerDefinition: OpenAPIV3.Document = {
       },
       SignupRequest: {
         type: 'object',
-        required: ['email', 'password', 'password_confirm'],
+        required: ['name', 'email', 'password', 'password_confirm'],
         properties: {
+          name: {
+            type: 'string',
+            minLength: 2,
+            maxLength: 100,
+            description: 'Nome completo do usuário.',
+            example: 'Gabi Teste',
+          },
           email: { type: 'string', format: 'email', example: 'vendedor@loja.com' },
           password: {
             type: 'string',
@@ -130,20 +137,24 @@ const swaggerDefinition: OpenAPIV3.Document = {
       },
       SignupResponse: {
         type: 'object',
-        required: ['token', 'refresh', 'userId'],
+        required: ['token', 'refreshToken', 'user'],
         properties: {
           token: { type: 'string', description: 'Access token JWT, expira em 15 minutos' },
-          refresh: { type: 'string', description: 'Refresh token JWT, expira em 7 dias' },
-          userId: {
+          refreshToken: {
             type: 'string',
-            format: 'uuid',
-            example: '550e8400-e29b-41d4-a716-446655440000',
+            description: 'Refresh token JWT, expira em 7 dias',
           },
+          user: { $ref: '#/components/schemas/AuthUser' },
         },
         example: {
           token: authTokenExample,
-          refresh: authTokenExample,
-          userId: '550e8400-e29b-41d4-a716-446655440000',
+          refreshToken: authTokenExample,
+          user: {
+            id: '550e8400-e29b-41d4-a716-446655440000',
+            email: 'vendedor@loja.com',
+            name: 'Gabi Teste',
+            roles: ['vendedor'],
+          },
         },
       },
       LoginRequest: {
@@ -156,10 +167,15 @@ const swaggerDefinition: OpenAPIV3.Document = {
       },
       AuthUser: {
         type: 'object',
-        required: ['id', 'email', 'roles'],
+        required: ['id', 'email', 'name', 'roles'],
         properties: {
           id: { type: 'string', format: 'uuid' },
           email: { type: 'string', format: 'email' },
+          name: {
+            type: 'string',
+            description: 'Nome completo do usuário.',
+            example: 'Gabi Teste',
+          },
           roles: {
             type: 'array',
             items: { type: 'string', enum: ['admin', 'vendedor', 'gestor'] },
@@ -169,18 +185,22 @@ const swaggerDefinition: OpenAPIV3.Document = {
       },
       LoginResponse: {
         type: 'object',
-        required: ['token', 'refresh', 'user'],
+        required: ['token', 'refreshToken', 'user'],
         properties: {
           token: { type: 'string', description: 'Access token JWT, expira em 15 minutos' },
-          refresh: { type: 'string', description: 'Refresh token JWT, expira em 7 dias' },
+          refreshToken: {
+            type: 'string',
+            description: 'Refresh token JWT, expira em 7 dias',
+          },
           user: { $ref: '#/components/schemas/AuthUser' },
         },
         example: {
           token: authTokenExample,
-          refresh: authTokenExample,
+          refreshToken: authTokenExample,
           user: {
             id: '550e8400-e29b-41d4-a716-446655440000',
             email: 'vendedor@loja.com',
+            name: 'Gabi Teste',
             roles: ['vendedor'],
           },
         },
@@ -198,11 +218,25 @@ const swaggerDefinition: OpenAPIV3.Document = {
       },
       RefreshResponse: {
         type: 'object',
-        required: ['token'],
+        required: ['token', 'refreshToken', 'user'],
         properties: {
           token: { type: 'string', description: 'Novo access token JWT, expira em 15 minutos' },
+          refreshToken: {
+            type: 'string',
+            description: 'Novo refresh token JWT, expira em 7 dias',
+          },
+          user: { $ref: '#/components/schemas/AuthUser' },
         },
-        example: { token: authTokenExample },
+        example: {
+          token: authTokenExample,
+          refreshToken: authTokenExample,
+          user: {
+            id: '550e8400-e29b-41d4-a716-446655440000',
+            email: 'vendedor@loja.com',
+            name: 'Gabi Teste',
+            roles: ['vendedor'],
+          },
+        },
       },
       LogoutResponse: {
         type: 'object',
@@ -255,6 +289,7 @@ const swaggerDefinition: OpenAPIV3.Document = {
                 valid: {
                   summary: 'Cadastro válido',
                   value: {
+                    name: 'Gabi Teste',
                     email: 'vendedor@loja.com',
                     password: 'Senha@123',
                     password_confirm: 'Senha@123',
@@ -530,6 +565,7 @@ const swaggerDefinition: OpenAPIV3.Document = {
                 example: {
                   id: '550e8400-e29b-41d4-a716-446655440000',
                   email: 'vendedor@loja.com',
+                  name: 'Gabi Teste',
                   roles: ['vendedor'],
                 },
               },
