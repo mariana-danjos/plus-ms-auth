@@ -377,7 +377,7 @@ Configuração em `jest.config.js`:
 - Coverage threshold global de **70%** em branches, functions, lines e statements.
 - Excludes do coverage: `index.ts`, `swagger.ts`, `scripts/**`, `types/**`.
 
-Suite em `src/auth/auth.routes.test.ts` (~60 casos) cobre:
+Suite em `src/auth/auth.routes.test.ts` (~31 casos) cobre:
 
 - Swagger UI disponível em `/api-docs`.
 - Validação Zod (senha fraca, e-mail inválido, etc.).

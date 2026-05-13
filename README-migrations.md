@@ -8,13 +8,14 @@ Armazena os usuários do sistema.
 | Coluna | Tipo | Descrição |
 |--------|------|-----------|
 | id | UUID | Chave primária, gerado automaticamente |
+| name | TEXT | Nome do usuário |
 | email | TEXT | Email único do usuário |
 | password_hash | TEXT | Senha hasheada com bcrypt (salt rounds: 12) |
 | role | TEXT | Papel do usuário: admin, vendedor (padrão) ou gestor |
 | created_at | TIMESTAMPTZ | Data de criação |
 | updated_at | TIMESTAMPTZ | Data de atualização (atualizado automaticamente via trigger) |
 
-**Constraints:** `users_email_format` (regex de email), `users_role_check` (valores permitidos)
+**Constraints:** `users_email_format` (regex de email), `users_role_check` (valores permitidos), `users_name_length` (`length(trim(name)) >= 2`)
 
 ### refresh_tokens
 Armazena os refresh tokens ativos por usuário.
@@ -37,8 +38,9 @@ Armazena access tokens revogados (logout/invalidação forçada).
 | id | UUID | Chave primária |
 | token | TEXT | Hash SHA-256 do access JWT |
 | blocked_at | TIMESTAMPTZ | Data de revogação |
+| expires_at | TIMESTAMPTZ | Data de expiração (default `NOW() + 15 minutes`) |
 
-**Índices:** `idx_token_blocklist_blocked_at`
+**Índices:** `idx_token_blocklist_blocked_at`, `idx_token_blocklist_expires_at`
 
 ## Rodando as migrations
 
